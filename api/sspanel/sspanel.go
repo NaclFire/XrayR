@@ -500,32 +500,13 @@ func (c *APIClient) ParseV2rayNodeResponse(nodeInfoResponse *NodeInfoResponse) (
 
 // ParseSSNodeResponse parse the response for the given node info format
 func (c *APIClient) ParseSSNodeResponse(nodeInfoResponse *NodeInfoResponse) (*api.NodeInfo, error) {
-	var port uint32 = 0
 	var speedLimit uint64 = 0
-	var method string
-	path := "/mod_mu/users"
-	res, err := c.client.R().
-		SetQueryParam("node_id", strconv.Itoa(c.NodeID)).
-		SetResult(&Response{}).
-		ForceContentType("application/json").
-		Get(path)
-
-	response, err := c.parseResponse(res, path, err)
+	serverConf := strings.Split(nodeInfoResponse.RawServerString, ";")
+	parsedPort, err := strconv.ParseInt(serverConf[1], 10, 32)
 	if err != nil {
 		return nil, err
 	}
-
-	userListResponse := new([]UserResponse)
-
-	if err := json.Unmarshal(response.Data, userListResponse); err != nil {
-		return nil, fmt.Errorf("unmarshal %s failed: %s", reflect.TypeOf(userListResponse), err)
-	}
-
-	// init server port
-	if len(*userListResponse) != 0 {
-		port = (*userListResponse)[0].Port
-	}
-
+	port := uint32(parsedPort)
 	if c.SpeedLimit > 0 {
 		speedLimit = uint64((c.SpeedLimit * 1000000) / 8)
 	} else {
@@ -537,8 +518,9 @@ func (c *APIClient) ParseSSNodeResponse(nodeInfoResponse *NodeInfoResponse) (*ap
 		NodeID:            c.NodeID,
 		Port:              port,
 		SpeedLimit:        speedLimit,
+		ServerKey:         nodeInfoResponse.ServerKey,
 		TransportProtocol: "tcp",
-		CypherMethod:      method,
+		CypherMethod:      nodeInfoResponse.Method,
 	}
 
 	return nodeInfo, nil
