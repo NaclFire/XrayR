@@ -409,10 +409,15 @@ func (c *APIClient) ReportIllegal(detectResultList *[]api.DetectResult) error {
 
 // ParseV2rayNodeResponse parse the response for the given node info format
 func (c *APIClient) ParseV2rayNodeResponse(nodeInfoResponse *NodeInfoResponse) (*api.NodeInfo, error) {
-	var enableTLS bool
-	var path, host, transportProtocol, serviceName, HeaderType string
+	var enableTLS, enableVless, enableREALITY bool
+	var path, host, transportProtocol, serviceName, HeaderType, flow string
 	var header json.RawMessage
 	var speedLimit uint64 = 0
+	type RealityMethod struct {
+		PrivateKey string `json:"private_key"`
+		Dest       string `json:"dest"`
+		ShortId    string `json:"short_id"`
+	}
 	if nodeInfoResponse.RawServerString == "" {
 		return nil, fmt.Errorf("no server info in response")
 	}
@@ -436,6 +441,9 @@ func (c *APIClient) ParseV2rayNodeResponse(nodeInfoResponse *NodeInfoResponse) (
 		switch value {
 		case "tls":
 			enableTLS = true
+		case "reality":
+			enableREALITY = true
+			transportProtocol = "tcp"
 		default:
 			if value != "" {
 				transportProtocol = value
@@ -461,6 +469,10 @@ func (c *APIClient) ParseV2rayNodeResponse(nodeInfoResponse *NodeInfoResponse) (
 			serviceName = value
 		case "headerType":
 			HeaderType = value
+		case "enable_vless":
+			enableVless, _ = strconv.ParseBool(value)
+		case "flow":
+			flow = value
 		}
 	}
 	if c.SpeedLimit > 0 {
@@ -477,7 +489,20 @@ func (c *APIClient) ParseV2rayNodeResponse(nodeInfoResponse *NodeInfoResponse) (
 	if err != nil {
 		return nil, fmt.Errorf("marshal Header Type %s into config failed: %s", header, err)
 	}
-
+	realityConfig := new(api.REALITYConfig)
+	if nodeInfoResponse.CustomConfig != nil {
+		var realityMethod RealityMethod
+		err := json.Unmarshal([]byte(nodeInfoResponse.CustomConfig), &realityMethod)
+		if err != nil {
+			return nil, fmt.Errorf("parse reality method json failed: %s", err)
+		}
+		dest := realityMethod.Dest
+		domain := strings.Split(dest, ":")[0]
+		realityConfig.ServerNames = []string{domain}
+		realityConfig.PrivateKey = realityMethod.PrivateKey
+		realityConfig.Dest = dest
+		realityConfig.ShortIds = []string{realityMethod.ShortId}
+	}
 	// Create GeneralNodeInfo
 	nodeInfo := &api.NodeInfo{
 		NodeType:          c.NodeType,
@@ -489,10 +514,12 @@ func (c *APIClient) ParseV2rayNodeResponse(nodeInfoResponse *NodeInfoResponse) (
 		EnableTLS:         enableTLS,
 		Path:              path,
 		Host:              host,
-		EnableVless:       c.EnableVless,
-		VlessFlow:         c.VlessFlow,
+		EnableVless:       enableVless,
+		VlessFlow:         flow,
 		ServiceName:       serviceName,
 		Header:            header,
+		EnableREALITY:     enableREALITY,
+		REALITYConfig:     realityConfig,
 	}
 
 	return nodeInfo, nil
